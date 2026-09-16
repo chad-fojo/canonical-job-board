@@ -1,2 +1,2 @@
-# unified-ats-pipeline
-An automated data pipeline and unified job board that aggregates, sanitizes, and normalizes open requisitions from disparate ATS APIs into a canonical database.
+# canonical-job-board
+A full-stack job aggregation platform powered by a backend engine that normalizes multi-source ATS payloads into a unified, searchable relational schema.
