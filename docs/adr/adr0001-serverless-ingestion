@@ -1,0 +1,40 @@
+
+# ADR 0001: Serverless Architecture for Data Ingestion
+
+**Date:** 2026-09-18 
+
+**Status:** Accepted
+
+## Context
+The Unified ATS Job Board requires a robust data ingestion pipeline to fetch, normalize, and store open job requisitions from multiple third-party Applicant Tracking System APIs . 
+
+We evaluated three primary architectures for this pipeline:
+1. A monolithic scheduled worker (e.g., EC2 instance running a cron job).
+2. A database-centric ETL process using procedural SQL and database schedulers.
+3. A cloud-native, serverless event-driven architecture.
+
+## Decision
+We will adopt a decoupled, serverless event-driven architecture hosted on AWS for the data ingestion pipeline. 
+
+The pipeline will utilize the following flow:
+*   **Trigger:** AWS EventBridge will trigger the ingestion process on a set schedule (e.g., once a day).
+*   **Extraction Layer:** A fleet of AWS Lambda functions written in Python will execute concurrently. Each function is responsible for a single ATS provider. They will fetch the raw JSON and push it to an Amazon SQS queue.
+*   **Transformation & Load Layer:** A downstream Lambda function will consume the SQS queue, sanitize the HTML payloads, map the disparate JSON fields into our canonical relational model, and perform the `UPSERT` operations into the unified PostgreSQL/RDS database.
+
+While other cloud providers were evaluated, AWS was selected as the infrastructure foundation for this pipeline due to the following strategic factors:
+*   **Leveraging Internal Competencies:** Building this architecture on AWS directly utilizes our engineering team's existing AWS Certified Cloud Practitioner expertise, converting foundational cloud knowledge into a tangible, production-grade deployment without requiring a new platform's learning curve.
+*   **Serverless Ecosystem Maturity:** AWS provides a mature and tightly integrated ecosystem (EventBridge, Lambda, SQS) specifically designed for concurrent, event-driven data analytics pipelines.
+*   **Market Dominance:** AWS holds the largest share of the global cloud market, ensuring that the architecture patterns demonstrated here are universally applicable to future engineering scalability.
+*   **Favorable Project Economics:** The AWS Free Tier provides 1 million free Lambda invocations and 1 million SQS requests per month, allowing this decoupled architecture to run continuously at virtually zero operational cost.
+
+## Consequences
+
+### Positives
+*   **Fault Isolation:** If an API rate-limits our extraction function, it will fail gracefully and retry without impacting the Lever extraction function running concurrently.
+*   **Cost Efficiency:** Using AWS Lambda and SQS minimizes compute waste. We only pay for the exact compute time used during the sync, rather than paying for a persistent EC2 server that sits idle the majority of the day.
+*   **Scalability:** If we expand to support 50 different ATS providers, the extraction layer scales horizontally automatically without infrastructure changes.
+
+### Negatives
+*   **Local Testing Complexity:** Debugging a decoupled, queue-based serverless architecture locally is more complex than debugging a single monolithic script. We will need to rely on tools like AWS SAM for local testing.
+*   **Observability Overhead:** Tracing a specific job posting from extraction to database insertion requires properly configured correlation IDs and centralized logging.
+*   **Database Connection Limits:** Because Lambda functions scale horizontally, a sudden spike in transformations could exhaust the relational database's connection pool. We will mitigate this by strictly controlling the concurrency limit on the downstream Load Lambda or utilizing an Amazon RDS Proxy.
